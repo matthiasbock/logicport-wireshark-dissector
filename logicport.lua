@@ -52,9 +52,6 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
     local USB_TRANSFER_TYPE_CONTROL = 0x02
     local USB_TRANSFER_TYPE_BULK = 0x03
 
-    local DIRECTION_OUT = 0x00
-    local DIRECTION_IN  = 0x80
-
     local FTDI_RESET = 0x00
     local FTDI_MODEM_CTRL = 0x01
     local FTDI_SET_FLOW_CTRL = 0x02
@@ -67,6 +64,23 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
     local FTDI_GET_LATENCY_TIMER = 0x0A
     local FTDI_SET_BIT_MODE = 0x0B
     local FTDI_GET_BIT_MODE = 0x0C
+
+    local FTDI_BAUD_300 = 0x2710
+    local FTDI_BAUD_600 = 0x1388
+    local FTDI_BAUD_1200 = 0x09C4
+    local FTDI_BAUD_2400 = 0x04E2
+    local FTDI_BAUD_4800 = 0x0271
+    local FTDI_BAUD_9600 = 0x4138
+    local FTDI_BAUD_19200 = 0x809C
+    local FTDI_BAUD_38400 = 0xC04E
+    local FTDI_BAUD_57600 = 0x0034
+    local FTDI_BAUD_115200 = 0x001A
+    local FTDI_BAUD_230400 = 0x000D
+    local FTDI_BAUD_460800 = 0x4006
+    local FTDI_BAUD_921600 = 0x8003
+
+    local DIRECTION_OUT = 0x00
+    local DIRECTION_IN  = 0x80
 
     local LOGICPORT_ENDPOINT_OUT = 0x02
     local LOGICPORT_ENDPOINT_IN  = 0x81
@@ -83,6 +97,10 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
     then
         bmRequestType = buffer(28,1):uint()
         bRequest = buffer(29,1):uint()
+
+        wValue = bit.lshift(buffer(31,1):uint(), 8) + buffer(30,1):uint()
+        wValue_high = buffer(31,1):uint()
+        wValue_low  = buffer(30,1):uint()
 
         -- Host to device
         if bmRequestType == 0x40
@@ -105,6 +123,11 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
             if bRequest == FTDI_SET_BAUD_RATE
             then
                 append_to_title(pinfo, ", FTDI_SET_BAUD_RATE")
+
+                if wValue == FTDI_BAUD_460800
+                then
+                    append_to_title(pinfo, ":460800bps")
+                end
             end
 
             if bRequest == FTDI_SET_DATA
@@ -125,40 +148,46 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
             if bRequest == FTDI_SET_LATENCY_TIMER
             then
                 append_to_title(pinfo, ", FTDI_SET_LATENCY_TIMER")
+
+                append_to_title(pinfo, ":"..wValue_low.."ms")
             end
 
             if bRequest == FTDI_SET_BIT_MODE
             then
                 append_to_title(pinfo, ", FTDI_SET_BIT_MODE")
 
-                wValue_high = buffer(31,1):uint()
-                wValue_low  = buffer(30,1):uint()
-
-                if wValue_high == 0x00 then append_to_title(pinfo, ":no function(?)") end
+                if wValue_high == 0x00 then append_to_title(pinfo, ":USB to parallel FIFO") end
                 if wValue_high == 0x01
                 then
-                    append_to_title(pinfo, ":asynchronous bitbanging")
+                    append_to_title(pinfo, ":asynchronous bitbang")
 
-                    if bit.band(wValue_low, 0x01) then append_to_title(pinfo, ",D0:out") else append_to_title(pinfo, ",D0:in") end
+                    if bit.band(wValue_low, 0x01) > 0 then append_to_title(pinfo, ",D0:out") else append_to_title(pinfo, ",D0:in") end
+                    if bit.band(wValue_low, 0x02) > 0 then append_to_title(pinfo, ",D1:out") else append_to_title(pinfo, ",D1:in") end
+                    if bit.band(wValue_low, 0x04) > 0 then append_to_title(pinfo, ",D2:out") else append_to_title(pinfo, ",D2:in") end
+                    if bit.band(wValue_low, 0x08) > 0 then append_to_title(pinfo, ",D3:out") else append_to_title(pinfo, ",D3:in") end
+                    if bit.band(wValue_low, 0x10) > 0 then append_to_title(pinfo, ",D4:out") else append_to_title(pinfo, ",D4:in") end
+                    if bit.band(wValue_low, 0x20) > 0 then append_to_title(pinfo, ",D5:out") else append_to_title(pinfo, ",D5:in") end
+                    if bit.band(wValue_low, 0x40) > 0 then append_to_title(pinfo, ",D6:out") else append_to_title(pinfo, ",D6:in") end
+                    if bit.band(wValue_low, 0x80) > 0 then append_to_title(pinfo, ",D7:out") else append_to_title(pinfo, ",D7:in") end
                 end
                 if wValue_high == 0x02 then append_to_title(pinfo, ":MPSSE") end
-                if wValue_high == 0x04 then append_to_title(pinfo, ":synchronous bitbanging") end
-                if wValue_high == 0x08 then append_to_title(pinfo, ":CPU emulation") end
+                if wValue_high == 0x04 then append_to_title(pinfo, ":synchronous bitbang") end
+                if wValue_high == 0x08 then append_to_title(pinfo, ":MCU host bus emulation") end
                 if wValue_high == 0x10 then append_to_title(pinfo, ":fast serial") end
-                if wValue_high == 0x20 then append_to_title(pinfo, ":CBUS bitbanging") end
-                if wValue_high == 0x40 then append_to_title(pinfo, ":undefined(?)") end
-                if wValue_high == 0x80 then append_to_title(pinfo, ":undefined(?)") end
-            end
-
-            if bRequest == FTDI_GET_BIT_MODE
-            then
-                append_to_title(pinfo, ", FTDI_GET_BIT_MODE")
+                if wValue_high == 0x20 then append_to_title(pinfo, ":CBUS bitbang") end
+                if wValue_high == 0x40 then append_to_title(pinfo, ":synchronous FIFO") end
+                if wValue_high == 0x80 then append_to_title(pinfo, ":FT1284") end
             end
         end
 
         -- Device to host
         if bmRequestType == 0xC0
         then
+            if bRequest == 0x90
+            then
+                append_to_title(pinfo, ", SIO_READ_EEPROM_REQUEST")
+            end
+
             if bRequest == FTDI_GET_MODEM_STATUS
             then
                 append_to_title(pinfo, ", FTDI_GET_MODEM_STATUS")
@@ -167,6 +196,11 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
             if bRequest == FTDI_GET_LATENCY_TIMER
             then
                 append_to_title(pinfo, ", FTDI_GET_LATENCY_TIMER")
+            end
+
+            if bRequest == FTDI_GET_BIT_MODE
+            then
+                append_to_title(pinfo, ", FTDI_GET_BIT_MODE")
             end
         end
     end
