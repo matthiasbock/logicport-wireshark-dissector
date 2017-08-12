@@ -7,38 +7,62 @@ dofile("plugins/logicport/ft245_modemstatus.lua")
 dofile("plugins/logicport/ft245_control.lua")
 dofile("plugins/logicport/ft245_baudrates.lua")
 
-local command_types =
+local preamble_types =
 {
     [0xc1] = "C1",
     [0xc2] = "C2",
     [0xc3] = "C3"
 }
 
-local field_command_type = ProtoField.uint8(
-    "logicport_bulk.command_type",
-    "Command type",
+local field_preamble_type = ProtoField.uint8(
+    "logicport_bulk.preamble_type",
+    "Preamble type",
     base.HEX,
-    command_types
+    preamble_types
 )
 
-local field_sequence_number = ProtoField.uint16(
-    "logicport_bulk.sequence_number",
-    "Sequence number",
+local field_packet_number = ProtoField.uint16(
+    "logicport_bulk.packet_number",
+    "Packet number",
+    base.HEX
+)
+
+local field_request_type = ProtoField.uint16(
+    "logicport_bulk.request_type",
+    "Request type",
+    base.HEX
+)
+
+local field_expected_response_size = ProtoField.uint16(
+    "logicport_bulk.expected_response_size",
+    "Expected response size",
+    base.HEX
+)
+
+local field_response = ProtoField.none(
+    "logicport_bulk.response",
+    "Response",
     base.HEX
 )
 
 logicport_bulk.fields =
 {
     field_modem_status,
-    field_command_type,
-    field_sequence_number
+    field_preamble_type,
+    field_packet_number,
+    field_request_type,
+    field_expected_response_size,
+    field_response
 }
 
-local usb_packet_length_field = Field.new("usb.urb_len")
+local usb_packet_data_length_field = Field.new("usb.urb_len")
 local usb_direction_field = Field.new("usb.bmRequestType.direction")
 
 function buffer_to_uint32(buffer)
-    return buffer(0,4):uint()
+    return  buffer(0,1):uint() +
+            bit.lshift(buffer(1,1):uint(), 8) +
+            bit.lshift(buffer(2,1):uint(), 16) +
+            bit.lshift(buffer(3,1):uint(), 24)
 end
 
 function append_to_title(pinfo, text)
@@ -64,7 +88,7 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
     local payload_offset = 27
 
     local usb_direction = bit.band(buffer(21,1):uint(), 0x80)
-    local packet_length = buffer_to_uint32(buffer(23,4))
+    local packet_data_length = buffer_to_uint32(buffer(23,4))
 
     local bmAttributes_transfer = buffer(22,1):uint()
 
@@ -184,26 +208,77 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
     then
         if usb_direction == DIRECTION_OUT
         then
-            append_to_title(pinfo, ", OUT")
+            if packet_data_length == 0
+            then
+                append_to_title(pinfo, ", empty?")
+                return
+            end
 
-            if packet_length <= 0 then return end
+            if packet_data_length < 3
+            then
+                append_to_title(pinfo, ", too short?")
+                return
+            end
 
+            local subtree = tree:add(logicport_bulk, buffer(payload_offset, packet_data_length))
+
+            -- Preamble byte
+            local preamble_type = buffer(payload_offset, 1)
+            subtree:add(field_preamble_type, preamble_type)
+
+            -- Packet number
+--            local packet_number = buffer(payload_offset+1, 2)
+--            subtree:add(field_packet_number, packet_number)
+--            append_to_title(pinfo, ", "..packet_number)
+
+            -- Request type
+            local request_type = bit.lshift(buffer(payload_offset+2, 1):uint(), 8) + buffer(payload_offset+1, 1):uint()
+            subtree:add(field_request_type, request_type)
+            append_to_title(pinfo, ", type:"..request_type)
+
+            if packet_data_length < 5
+            then
+                -- This is not an error
+                return
+            end
+
+            -- Expected response size
+            local expected_response_size = bit.lshift(buffer(payload_offset+4, 1):uint(), 8) + buffer(payload_offset+3, 1):uint()
+            subtree:add(field_expected_response_size, expected_response_size)
+            append_to_title(pinfo, ", expects:"..expected_response_size)
         else
-            append_to_title(pinfo, ", IN")
+            local subtree = tree:add(logicport_bulk, buffer(payload_offset, packet_data_length))
 
-            if packet_length <= 0 then return end
+            -- FTDI modem status bytes
+            local modem_status = buffer(payload_offset, 2)
+            subtree:add(field_modem_status, modem_status)
 
-            local subtree = tree:add(logicport_bulk, buffer(payload_offset, 2))
+            -- Parse FTDI modem status bits
+            --local subtree = tree:add(logicport_bulk, buffer(payload_offset, 2))
+            --subtree:add(field_modem_status, buffer(payload_offset, 2))
 
-            subtree:add(field_modem_status, buffer(payload_offset, 2))
+            if packet_data_length <= 2
+            then
+                append_to_title(pinfo, ", empty?")
+                return
+            end
 
-            if packet_length <= 2 then return end
+            -- Preamble byte
+            subtree:add(field_preamble_type, buffer(payload_offset+2, 1))
 
-            subtree:add(field_command_type, buffer(payload_offset+2, 1))
+            if packet_data_length <= 3 then return end
 
-            if packet_length <= 3 then return end
+            -- Packet number
+            local packet_number = buffer(payload_offset+3, 2)
+            subtree:add(field_packet_number, packet_number)
+            append_to_title(pinfo, " #0x"..packet_number)
 
-            subtree:add(field_sequence_number, buffer(payload_offset+3, 2))
+            if packet_data_length <= 5 then return end
+
+            local extra_bytes = packet_data_length - 5
+            append_to_title(pinfo, ", given:"..extra_bytes)
+            local response = buffer(payload_offset+5, extra_bytes)
+            subtree:add(field_response, response)
         end
     end
 end
