@@ -4,6 +4,8 @@ local logicport_bulk = Proto("logicport_bulk", "Intronix LogicPort USB protocol"
 
 -- Import FTDI FT245BL specific stuff
 dofile("plugins/logicport/ft245_modemstatus.lua")
+dofile("plugins/logicport/ft245_control.lua")
+dofile("plugins/logicport/ft245_baudrates.lua")
 
 local command_types =
 {
@@ -51,33 +53,6 @@ function logicport_bulk.dissector(buffer, pinfo, tree)
 
     local USB_TRANSFER_TYPE_CONTROL = 0x02
     local USB_TRANSFER_TYPE_BULK = 0x03
-
-    local FTDI_RESET = 0x00
-    local FTDI_MODEM_CTRL = 0x01
-    local FTDI_SET_FLOW_CTRL = 0x02
-    local FTDI_SET_BAUD_RATE = 0x03
-    local FTDI_SET_DATA = 0x04
-    local FTDI_GET_MODEM_STATUS = 0x05
-    local FTDI_SET_EVENT_CHAR = 0x06
-    local FTDI_SET_ERROR_CHAR = 0x07
-    local FTDI_SET_LATENCY_TIMER = 0x09
-    local FTDI_GET_LATENCY_TIMER = 0x0A
-    local FTDI_SET_BIT_MODE = 0x0B
-    local FTDI_GET_BIT_MODE = 0x0C
-
-    local FTDI_BAUD_300 = 0x2710
-    local FTDI_BAUD_600 = 0x1388
-    local FTDI_BAUD_1200 = 0x09C4
-    local FTDI_BAUD_2400 = 0x04E2
-    local FTDI_BAUD_4800 = 0x0271
-    local FTDI_BAUD_9600 = 0x4138
-    local FTDI_BAUD_19200 = 0x809C
-    local FTDI_BAUD_38400 = 0xC04E
-    local FTDI_BAUD_57600 = 0x0034
-    local FTDI_BAUD_115200 = 0x001A
-    local FTDI_BAUD_230400 = 0x000D
-    local FTDI_BAUD_460800 = 0x4006
-    local FTDI_BAUD_921600 = 0x8003
 
     local DIRECTION_OUT = 0x00
     local DIRECTION_IN  = 0x80
